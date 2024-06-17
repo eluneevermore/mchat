@@ -1,0 +1,20 @@
+.bsp
+.idea
+.metals
+project/target
+target
+**/node_modules
+**/project
+**/application.conf
+frontend/betswipe-web/src/protobuf
+frontend/betswipe-web/dist
+.DS_Store
+**/.DS_Store
+crawler/lib/build
+socketio/dist
+
+# vercel
+.vercel
+
+# local env files
+.env*.local
