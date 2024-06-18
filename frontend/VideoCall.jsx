@@ -4,23 +4,42 @@ import { useCallback } from 'react'
 import { useEffect } from 'react'
 import { useRef } from 'react'
 
+const useStateWithRef = (init) => {
+  const [state, setState] = useState(init)
+  const ref = useRef(state)
+  const setStateAndRef = useCallback((v) => {
+    if (typeof v == 'function') {
+      setState(value => {
+        const newValue = v(value)
+        ref.current = newValue
+        return newValue
+      })
+    } else {
+      ref.current = v
+      setState(v)
+    }
+  }, [setState])
+  return [state, setStateAndRef, ref]
+}
+
 const useVideoCall = (socket) => {
   const localVideoRef = useRef(null)
-  const remoteVideoRef = useRef(null)
-  const peerConnectionRef = useRef(null)
+  const [remotes, setRemotes, remotesRef] = useStateWithRef({})
   const [joined, setJoined] = useState(false)
 
-  const handleDisconnect = useCallback(() => {
-    if (remoteVideoRef.current) {
-      remoteVideoRef.current.srcObject = null
+  const handleDisconnect = (peerId) => {
+    const remotes = remotesRef.current
+    console.log('handleDisconnect', { remotes, peerId })
+    if (!remotes[peerId]) {
+      return
     }
-    if (peerConnectionRef.current) {
-      peerConnectionRef.current.close()
-      peerConnectionRef.current = null
-    }
-  }, [remoteVideoRef, peerConnectionRef])
+    setRemotes(({ [peerId]: remote, ...remotes }) => {
+      remote?.peerConnection?.close()
+      return remotes
+    })
+  }
 
-  const initializePeerConnection = useCallback(() => {
+  const initializePeerConnection = (peerId) => {
     const peerConnection = new RTCPeerConnection({
       iceServers: [
         { urls: 'stun:stun.l.google.com:19302' }
@@ -28,13 +47,19 @@ const useVideoCall = (socket) => {
     })
 
     peerConnection.ontrack = event => {
-      console.log('remoteVideoRef', remoteVideoRef, event)
-      if (remoteVideoRef.current) {
-        remoteVideoRef.current.srcObject = event.streams[0]
+      console.log('ontrack', event)
+      const oldRemote = remotes[peerId]
+      if (!oldRemote) {
+        const remote = { srcObject: event.streams[0], peerConnection }
+        setRemotes({ ...remotes, [peerId]: remote })
+      } else {
+        const remote = { ...oldRemote, srcObject: event.streams[0] }
+        setRemotes({ ...remotes, [peerId]: remote })
       }
     }
 
     peerConnection.onicecandidate = event => {
+      console.log('onicecandidate', event)
       if (event.candidate) {
         socket.emit('candidate', event.candidate)
       }
@@ -42,98 +67,125 @@ const useVideoCall = (socket) => {
 
     peerConnection.oniceconnectionstatechange = () => {
       if (['disconnected', 'failed', 'closed'].includes(peerConnection.iceConnectionState)) {
-        handleDisconnect()
+        handleDisconnect(peerId)
       }
     }
 
-    peerConnectionRef.current = peerConnection
+    setRemotes(prev => ({ ...prev, [peerId]: { peerConnection } }))
+
     return peerConnection
-  }, [remoteVideoRef, peerConnectionRef, handleDisconnect])
+  }
+  // , [remotes, setRemotes, handleDisconnect])
 
-  const setupSocketListener = useCallback(() => {
-    socket.on('offer', async (id, description) => {
-      const pc = peerConnectionRef.current ?? initializePeerConnection()
-      await pc.setRemoteDescription(new RTCSessionDescription(description))
-      const answer = await pc.createAnswer()
-      await pc.setLocalDescription(answer)
-      socket.emit('answer', answer)
-    })
+  const getPeerConnection = (peerId) => {
+    return remotesRef.current?.[peerId]?.peerConnection
+  }
 
-    socket.on('answer', async (id, description) => {
-      const pc = peerConnectionRef.current
-      if (pc && pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(description))
-        setJoined(true)
-      }
-    })
+  const getOrInitializePeerConnection = (peerId) => {
+    return getPeerConnection(peerId) ?? initializePeerConnection(peerId)
+  }
 
-    socket.on('candidate', async (id, candidate) => {
-      if (peerConnectionRef.current) {
-        await peerConnectionRef.current.addIceCandidate(new RTCIceCandidate(candidate))
-      }
-    })
-
-    socket.on('user-disconnected', () => {
-      handleDisconnect()
-    })
-
-    return () => {
-      handleDisconnect()
-      socket.disconnect()
-    }
-  }, [peerConnectionRef, handleDisconnect, setJoined])
-
-  const createOffer = useCallback(async () => {
-    peerConnectionRef.current ?? initializePeerConnection()
-    const offer = await peerConnectionRef.current.createOffer({
-      iceRestart: true,
-      offerToReceiveAudio: true,
-      offerToReceiveVideo: true,
-    })
-    await peerConnectionRef.current.setLocalDescription(offer)
-    socket.emit('offer', offer)
-  }, [peerConnectionRef, initializePeerConnection])
-
-  const joinCall = useCallback(() => {
-    createOffer()
-    setJoined(true)
-  }, [createOffer, setJoined])
-
-  useEffect(() => {
-    const peerConnection = initializePeerConnection()
+  const setupSocketListener = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true })
     // Setup local video
-    navigator.mediaDevices.getUserMedia({ video: true, audio: true }).then(stream => {
-      if (localVideoRef.current) {
-        localVideoRef.current.srcObject = stream
+    if (localVideoRef.current) {
+      localVideoRef.current.srcObject = stream
+    }
+
+    // Setup socket listeners
+    socket.on('offer', async (peerId, description) => {
+      console.log('offer', peerId, description)
+      if (getPeerConnection(peerId)) {
+        // Skip existing remotes
+        return
       }
+      const peerConnection = initializePeerConnection(peerId)
       stream.getTracks().forEach(track => peerConnection.addTrack(track, stream))
+      await peerConnection.setRemoteDescription(new RTCSessionDescription(description))
+      const answer = await peerConnection.createAnswer()
+      await peerConnection.setLocalDescription(answer)
+      socket.emit('answer', { peerId, answer })
     })
-  }, [])
+
+    socket.on('answer', async (peerId, description) => {
+      console.log('answer', peerId, description)
+      const peerConnection = getPeerConnection(peerId)
+      if (peerConnection) {
+        await peerConnection.setRemoteDescription(new RTCSessionDescription(description))
+      }
+    })
+
+    socket.on('candidate', async (peerId, candidate) => {
+      const peerConnection = getPeerConnection(peerId)
+      console.log('candidate', peerId, candidate, peerConnection)
+      if (peerConnection) {
+        await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
+      }
+    })
+
+    socket.on('user-disconnected', (peerId) => {
+      handleDisconnect(peerId)
+    })
+
+    socket.on('user-joined', async (peerId) => {
+      console.log('user-joined', peerId)
+      const peerConnection = getOrInitializePeerConnection(peerId)
+      stream.getTracks().forEach(track => peerConnection.addTrack(track, stream))
+      // Create offer to peerId
+      const offer = await peerConnection.createOffer({
+        iceRestart: true,
+        offerToReceiveAudio: true,
+        offerToReceiveVideo: true,
+      })
+      await peerConnection.setLocalDescription(offer)
+      socket.emit('offer', { offer, peerId })
+    })
+  }
+  // , [socket, remotesRef, createOfferToPeer, handleDisconnect, initializePeerConnection])
+
+  const joinCall = async () => {
+    await setupSocketListener()
+    console.log('join')
+    socket.emit('join')
+    setJoined(true)
+  }
+  // , [socket, setJoined, setupSocketListener])
+
+  return { localVideoRef, remotes, joinCall, joined }
+}
+
+const Video = ({ srcObject }) => {
+  const ref = useRef(null)
 
   useEffect(() => {
-    // Add socket listener
-    setupSocketListener()
-    return () => {
-      ['offer', 'answer', 'candidate', 'user-disconnected'].forEach(event => {
-        socket.removeAllListeners(event)
-      })
+    if (srcObject) {
+      ref.current.srcObject = srcObject
     }
-  }, [])
+  }, [srcObject])
 
-  return { localVideoRef, remoteVideoRef, joinCall, joined }
+  return (
+    <div style={{ border: '1px solid black' }}>
+      <video id='remoteVideo' ref={ref} autoPlay style={{ width: '300px' }} />
+    </div>
+  )
 }
 
 const VideoCall = ({
   localVideoRef,
-  remoteVideoRef,
+  remotes,
   joinCall,
   joined,
 }) => {
+  console.log({ remotes: (window.remotes = remotes) })
+
   return (
     <>
-      < div >
+      <div>
         <video id='localVideo' ref={localVideoRef} autoPlay muted style={{ width: '300px' }} />
-        <video id='remoteVideo' ref={remoteVideoRef} autoPlay style={{ width: '300px' }} /> </div >
+        {Object.entries(remotes).map(([id, { srcObject }]) =>
+          <Video srcObject={srcObject} key={id} />
+        )}
+      </div >
       <div>
         <button onClick={joinCall} disabled={joined}>Start Call</button>
       </div>

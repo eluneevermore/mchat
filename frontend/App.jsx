@@ -5,7 +5,7 @@ import VideoCall from './VideoCall'
 
 // const PORT = 10008
 // const socket = io('http://localhost:' + PORT)
-const socket = io()
+const socket = window.socket = io()
 
 function App() {
   const chatProps = Chat.useChat(socket)

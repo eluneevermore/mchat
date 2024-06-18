@@ -14,14 +14,14 @@ const io = socketIo(server, {
 io.on('connection', (socket) => {
   console.log('New client connected:', socket.id)
 
-  socket.on('offer', (offer) => {
+  socket.on('offer', ({ offer, peerId }) => {
     console.log('offer', offer)
-    socket.broadcast.emit('offer', socket.id, offer)
+    io.to(peerId).emit('offer', socket.id, offer)
   })
 
-  socket.on('answer', (answer) => {
+  socket.on('answer', ({ answer, peerId }) => {
     console.log('answer', answer)
-    socket.broadcast.emit('answer', socket.id, answer)
+    io.to(peerId).emit('answer', socket.id, answer)
   })
 
   socket.on('candidate', (candidate) => {
@@ -32,6 +32,11 @@ io.on('connection', (socket) => {
   socket.on('chat', (message) => {
     console.log('chat', message)
     io.emit('chat', socket.id, message)
+  })
+
+  socket.on('join', () => {
+    console.log('join', socket.id)
+    socket.broadcast.emit('user-joined', socket.id)
   })
 
   socket.on('disconnect', () => {
