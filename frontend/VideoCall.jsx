@@ -29,7 +29,6 @@ const useVideoCall = (socket) => {
 
   const handleDisconnect = (peerId) => {
     const remotes = remotesRef.current
-    console.log('handleDisconnect', { remotes, peerId })
     if (!remotes[peerId]) {
       return
     }
@@ -47,7 +46,6 @@ const useVideoCall = (socket) => {
     })
 
     peerConnection.ontrack = event => {
-      console.log('ontrack', event)
       const oldRemote = remotes[peerId]
       if (!oldRemote) {
         const remote = { srcObject: event.streams[0], peerConnection }
@@ -59,7 +57,6 @@ const useVideoCall = (socket) => {
     }
 
     peerConnection.onicecandidate = event => {
-      console.log('onicecandidate', event)
       if (event.candidate) {
         socket.emit('candidate', event.candidate)
       }
@@ -94,7 +91,6 @@ const useVideoCall = (socket) => {
 
     // Setup socket listeners
     socket.on('offer', async (peerId, description) => {
-      console.log('offer', peerId, description)
       if (getPeerConnection(peerId)) {
         // Skip existing remotes
         return
@@ -108,7 +104,6 @@ const useVideoCall = (socket) => {
     })
 
     socket.on('answer', async (peerId, description) => {
-      console.log('answer', peerId, description)
       const peerConnection = getPeerConnection(peerId)
       if (peerConnection) {
         await peerConnection.setRemoteDescription(new RTCSessionDescription(description))
@@ -117,7 +112,6 @@ const useVideoCall = (socket) => {
 
     socket.on('candidate', async (peerId, candidate) => {
       const peerConnection = getPeerConnection(peerId)
-      console.log('candidate', peerId, candidate, peerConnection)
       if (peerConnection) {
         await peerConnection.addIceCandidate(new RTCIceCandidate(candidate))
       }
@@ -128,7 +122,6 @@ const useVideoCall = (socket) => {
     })
 
     socket.on('user-joined', async (peerId) => {
-      console.log('user-joined', peerId)
       const peerConnection = getOrInitializePeerConnection(peerId)
       stream.getTracks().forEach(track => peerConnection.addTrack(track, stream))
       // Create offer to peerId
@@ -145,7 +138,6 @@ const useVideoCall = (socket) => {
 
   const joinCall = async () => {
     await setupSocketListener()
-    console.log('join')
     socket.emit('join')
     setJoined(true)
   }
@@ -176,7 +168,7 @@ const VideoCall = ({
   joinCall,
   joined,
 }) => {
-  console.log({ remotes: (window.remotes = remotes) })
+  // console.debug({ remotes: (window.remotes = remotes) })
 
   return (
     <>
