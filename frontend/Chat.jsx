@@ -1,26 +1,26 @@
-import React from 'react'
-import { useCallback } from 'react'
-import { useEffect } from 'react'
-import { useState } from 'react'
-import { useRef } from 'react'
+import React, { useCallback, useEffect, useState, useRef } from 'react'
+import { Space, Button, Input, List, Card } from 'antd'
 
 export const useChat = (socket) => {
-  const chatRef = useRef(null)
+  const [value, setValue] = useState('')
   const [messages, setMessages] = useState([])
 
   const sendMessage = useCallback(() => {
-    if (chatRef.current) {
-      const message = chatRef.current.value
-      socket.emit('chat', message)
-      chatRef.current.value = ''
+    if (value) {
+      socket.emit('chat', value)
+      setValue('')
     }
-  }, [chatRef])
+  }, [value, setValue])
 
   const onKeyDown = useCallback((event) => {
     if (event.key === 'Enter') {
       sendMessage()
     }
   }, [sendMessage])
+
+  const onInputChange = useCallback((event) => {
+    setValue(event.target.value)
+  }, [setValue])
 
   useEffect(() => {
     socket.on('chat', (id, message) => {
@@ -29,20 +29,45 @@ export const useChat = (socket) => {
     return () => socket.removeAllListeners('chat')
   }, [])
 
-  return { chatRef, messages, sendMessage, onKeyDown }
+  return { value, messages, onInputChange, sendMessage, onKeyDown }
 }
 
-const Chat = ({ chatRef, messages, sendMessage, onKeyDown }) => {
+const Chat = ({ value, onInputChange, messages, sendMessage, onKeyDown }) => {
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const element = ref.current
+    if (ref.current) {
+      element.scrollTop = element.scrollHeight
+    }
+  }, [messages])
 
   return (
     <>
-      <div>
-        <input type="text" ref={chatRef} onKeyDown={onKeyDown}></input>
-        <button onClick={sendMessage}>Send</button>
-      </div>
-      <div>
-        {messages.map(({ id, message }, index) => <div key={index}>{id}: {message}</div>)}
-      </div>
+      <Card size='small'
+        style={{
+          height: 'calc(100% - 100px)',
+          overflow: 'auto',
+        }}
+        ref={ref}
+      >
+        <List
+          size='small'
+          dataSource={messages}
+          renderItem={({ id, message }) => (
+            <List.Item>
+              <List.Item.Meta title={id} />
+              {message}
+            </List.Item>
+          )}
+        />
+      </Card>
+      <Card>
+        <Space.Compact>
+          <Input type="text" value={value} onChange={onInputChange} onKeyDown={onKeyDown} />
+          <Button onClick={sendMessage}>Send</Button>
+        </Space.Compact>
+      </Card>
     </>
   )
 }

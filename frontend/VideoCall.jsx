@@ -1,8 +1,5 @@
-import React from 'react'
-import { useState } from 'react'
-import { useCallback } from 'react'
-import { useEffect } from 'react'
-import { useRef } from 'react'
+import React, { useRef, useEffect, useState, useCallback } from 'react'
+import { Space, Button } from 'antd'
 
 const useStateWithRef = (init) => {
   const [state, setState] = useState(init)
@@ -146,7 +143,15 @@ const useVideoCall = (socket) => {
   return { localVideoRef, remotes, joinCall, joined }
 }
 
-const Video = ({ srcObject }) => {
+const VideoContainer = (props) => {
+  return (
+    <div style={{ border: '1px solid black' }}>
+      {props.children}
+    </div>
+  )
+}
+
+const RemoteVideo = ({ srcObject }) => {
   const ref = useRef(null)
 
   useEffect(() => {
@@ -156,9 +161,17 @@ const Video = ({ srcObject }) => {
   }, [srcObject])
 
   return (
-    <div style={{ border: '1px solid black' }}>
-      <video id='remoteVideo' ref={ref} autoPlay style={{ width: '300px' }} />
-    </div>
+    <VideoContainer>
+      <video ref={ref} autoPlay style={{ width: '300px' }} />
+    </VideoContainer>
+  )
+}
+
+const LocalVideo = ({ localVideoRef }) => {
+  return (
+    <VideoContainer>
+      <video id='localVideo' ref={localVideoRef} autoPlay muted style={{ width: '300px' }} />
+    </VideoContainer>
   )
 }
 
@@ -168,18 +181,16 @@ const VideoCall = ({
   joinCall,
   joined,
 }) => {
-  // console.debug({ remotes: (window.remotes = remotes) })
-
   return (
     <>
-      <div>
-        <video id='localVideo' ref={localVideoRef} autoPlay muted style={{ width: '300px' }} />
+      <Space wrap>
+        <LocalVideo localVideoRef={localVideoRef} />
         {Object.entries(remotes).map(([id, { srcObject }]) =>
-          <Video srcObject={srcObject} key={id} />
+          <RemoteVideo srcObject={srcObject} key={id} />
         )}
-      </div >
+      </Space>
       <div>
-        <button onClick={joinCall} disabled={joined}>Start Call</button>
+        <Button onClick={joinCall} disabled={joined}>Start Call</Button>
       </div>
     </>
   )
